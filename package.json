@@ -1,0 +1,22 @@
+{
+  "dependencies": {
+    "@tensorflow/tfjs-node-gpu": "^3.11.0"
+  },
+  "name": "tensorflowjs",
+  "description": "TensorFlow JS learning from Udemy",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/natwu2021/tensorFlowJS.git"
+  },
+  "author": "Natalie Wu",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/natwu2021/tensorFlowJS/issues"
+  },
+  "homepage": "https://github.com/natwu2021/tensorFlowJS#readme"
+}
