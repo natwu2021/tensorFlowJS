@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>TensorFlow.js linear regression</title>
+    <!-- <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis"></script> -->
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.0.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis"></script>
+
+  <body>
+    <script type="text/javascript">
+
+      async function plot(pointsArray, featureName) {
+        tfvis.render.scatterplot(
+          { name: `${featureName} vs House Price` },
+          { values: [pointsArray], series: ['original'] },
+          {
+            xLabel: featureName,
+            yLabel: 'Price',
+          }
+        );
+      }
+
+      function normalise(tensor) {
+        const min = tensor.min();
+        const max = tensor.max();
+        const normalisedTensor = tensor.sub(min).div(max.sub(min));
+        return {
+          tensor: normalisedTensor,
+          min,
+          max
+        };
+      }
+
+      function denormalise(tensor, min, max){
+        const denormalisedTensor = tensor.mul(max.sub(min)).add(min);
+        return denormalisedTensor;
+      }
+
+      async function run() {
+        // Import from CSV
+        const houseSalesDataset = tf.data.csv(
+          'http://169.254.181.17:8080/kc_house_data.csv'
+        );
+        
+        // Extract x and y values to plot
+        const pointsDataset = houseSalesDataset.map((record) => ({
+          x: record.sqft_living,
+          y: record.price,
+        }));
+
+        const points = await pointsDataset.toArray();
+        // To shuffle the data 
+        tf.util.shuffle(points);
+        plot(points, 'Square feet');
+
+        // Extract Features (inputs)
+        const featureValues = points.map(p=> p.x);
+        const featureTensor= tf.tensor2d(featureValues, [featureValues.length,1]);
+
+        // Extract Labels (outputs)
+        const labelValues = points.map(p=> p.y);
+        const labelTensor = tf.tensor2d(labelValues, [labelValues.length,1]);
+
+
+        // Normalise features and labels
+        const normalisedFeature = normalise(featureTensor);
+        const normalisedLabel = normalise(labelTensor)
+
+        normalisedFeature.tensor.print();
+      }
+      run();
+    </script>
+  </body>
+</html>
