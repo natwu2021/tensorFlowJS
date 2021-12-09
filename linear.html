@@ -5,12 +5,20 @@
     <!-- <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis"></script> -->
 
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.0.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css"
+    />
+    <link
+      href="https://fonts.googleapis.com/icon?family=Material+Icons"
+      rel="stylesheet"
+    />
+  </head>
 
   <body>
     <script type="text/javascript">
-
       async function plot(pointsArray, featureName) {
         tfvis.render.scatterplot(
           { name: `${featureName} vs House Price` },
@@ -29,13 +37,58 @@
         return {
           tensor: normalisedTensor,
           min,
-          max
+          max,
         };
       }
 
-      function denormalise(tensor, min, max){
+      function denormalise(tensor, min, max) {
         const denormalisedTensor = tensor.mul(max.sub(min)).add(min);
         return denormalisedTensor;
+      }
+
+      function createModel() {
+        const model = tf.sequential();
+
+        model.add(
+          tf.layers.dense({
+            units: 1, //number of nodes
+            useBias: true, // true b/c the line can then cross the y axis at any point allowing the model to be trained for a better fit
+            activation: 'linear', //linear means directly mapping our input to the output, without any kind of threshold function
+            inputDim: 1, //short hand to use only 1 feature in this model
+          })
+        );
+
+        //0.1 is the learning rate
+        //try 0.01, takes more epochs to train
+        const optimizer = tf.train.sgd(0.1);
+        model.compile({
+          loss: 'meanSquaredError',
+          optimizer,
+        });
+
+        return model;
+      }
+
+      async function trainModel(
+        model,
+        trainingFeatureTensor,
+        trainingLabelTensor
+      ) {
+        const { onBatchEnd, onEpochEnd } = tfvis.show.fitCallbacks(
+          { name: 'Training Performance' }, //Naming of the tf.vis container
+          ['loss'] //metrics to be visualized
+        );
+
+        return model.fit(trainingFeatureTensor, trainingLabelTensor, {
+          batchSize: 32,
+          epochs: 20,
+          validationSplit: 0.2,
+          callbacks: {
+            onEpochEnd,
+            // : (epoch, log) => console.log(`Epoch ${epoch}: loss = ${log.loss}`)
+            // onBatchEnd,
+          },
+        });
       }
 
       async function run() {
@@ -43,7 +96,12 @@
         const houseSalesDataset = tf.data.csv(
           'http://169.254.181.17:8080/kc_house_data.csv'
         );
-        
+
+        // To verify data has been imported
+        // const sampleDataset = houseSalesDataset;
+        // const dataArray = await sampleDataset.toArray();
+        // console.log(dataArray.length);
+
         // Extract x and y values to plot
         const pointsDataset = houseSalesDataset.map((record) => ({
           x: record.sqft_living,
@@ -51,26 +109,195 @@
         }));
 
         const points = await pointsDataset.toArray();
-        // To shuffle the data 
+        // console.log(points.length)
+        // Because we choose to split the data equally, add checker to ensure tensor length is even ==> conditionally delete using modules operator
+        if (points.length % 2 !== 0) {
+          points.pop(); //remove one element from the array if is odd
+        }
+        // To shuffle the data
         tf.util.shuffle(points);
         plot(points, 'Square feet');
 
         // Extract Features (inputs)
-        const featureValues = points.map(p=> p.x);
-        const featureTensor= tf.tensor2d(featureValues, [featureValues.length,1]);
+        const featureValues = points.map((p) => p.x);
+        const featureTensor = tf.tensor2d(featureValues, [
+          featureValues.length,
+          1,
+        ]);
 
         // Extract Labels (outputs)
-        const labelValues = points.map(p=> p.y);
-        const labelTensor = tf.tensor2d(labelValues, [labelValues.length,1]);
+        const labelValues = points.map((p) => p.y);
+        const labelTensor = tf.tensor2d(labelValues, [labelValues.length, 1]);
 
-
-        // Normalise features and labels
+        // Normalise/Standardize features and labels: between 0 and 1
         const normalisedFeature = normalise(featureTensor);
-        const normalisedLabel = normalise(labelTensor)
+        const normalisedLabel = normalise(labelTensor);
 
-        normalisedFeature.tensor.print();
+        // Split the data equally into 2 groups: first element is called trainingFeatureTensor, and the second element of the result is testingFeaturesTensor
+        const [trainingFeatureTensor, testingFeaturesTensor] = tf.split(
+          normalisedFeature.tensor,
+          2
+        );
+        const [trainingLabelTensor, testingLabelTensor] = tf.split(
+          normalisedLabel.tensor,
+          2
+        );
+
+        // To inspect the code, to inspect the length of the tensor, add the argument of 'true'
+        // trainingFeatureTensor.print(true);
+
+        const model = createModel();
+        // To inspect the model
+        model.summary();
+        // if using browser and tfvis, we can also visualize model summary
+        tfvis.show.modelSummary({ name: 'Model summary' }, model);
+        const layer = model.getLayer(undefined, 0);
+        tfvis.show.layer({ name: 'Layer 1' }, layer);
+
+        const result = await trainModel(
+          model,
+          trainingFeatureTensor,
+          trainingLabelTensor
+        );
+        // to see the returning result object, we can console log the result
+        // want to see the last (pop()) of loss metrics only
+        const trainingLoss = result.history.loss.pop();
+        console.log(`training set loss rate: ${trainingLoss}`);
+
+        //after adding the validation dataset split: 0.2
+        const validationLoss = result.history.val_loss.pop();
+        console.log(`Validation set loss: ${validationLoss}`);
+        // calculate the testing set loss
+        const lossTensor = model.evaluate(
+          testingFeaturesTensor,
+          testingLabelTensor
+        );
+        const loss = await lossTensor.dataSync();
+        console.log(`testing set loss: ${loss}`);
       }
-      run();
+      // run();
+      // Important to prevent memory leak by tidying up after running the function
+      tf.tidy(() => {
+        run();
+      });
     </script>
+
+<!--   Header   -->
+<div class="section no-pad-bot" id="index-banner">
+  <div class="container">
+    <h5 class="header center blue-text small">Linear regression with TensorFlow.js</h5>
+    <div class="row center">
+      <h6 class="header col s12 light">Train a model to predict house price from living space.</h6>
+    </div>
+  </div>
+</div>
+
+<!--   Misc buttons   -->
+<div class="section no-pad-bot light-blue lighten-4">
+  <div class="container">
+    <div class="row center">
+      <button id="toggle-button" class="waves-effect waves-light light-blue btn-small" onclick="toggleVisor()">Toggle Visor</button>
+      <br/><br/>
+    </div>
+  </div>
+</div>
+    <!--   Main functionality   -->
+    <div class="container">
+      <div class="section">
+        <div class="row">
+          <!--   Training   -->
+          <div class="col s12 m6">
+            <div class="icon-block">
+              <h3 class="center light-blue-text">
+                <i class="material-icons" style="font-size: 2em">build</i>
+              </h3>
+              <h5 class="center">Train & Test</h5>
+
+              <p class="light"></p>
+
+              <div>
+                <p><label>Training status:</label></p>
+                <pre
+                  class="grey lighten-4"
+                  style="overflow-x: auto"
+                ><em id="model-status">Loading data...</em></pre>
+
+                <p><label>Testing status:</label></p>
+                <pre
+                  class="grey lighten-4"
+                  style="overflow-x: auto"
+                ><em id="testing-status">Not yet tested</em></pre>
+
+                <button
+                  autocomplete="off"
+                  id="train-button"
+                  class="waves-effect light-blue waves-light btn"
+                  disabled
+                  onclick="train()"
+                >
+                  Train New Model
+                </button>
+                <button
+                  autocomplete="off"
+                  id="test-button"
+                  class="waves-effect light-blue waves-light btn"
+                  disabled
+                  onclick="test()"
+                >
+                  Test Model
+                </button>
+              </div>
+              <br />
+
+              <div>
+                <button
+                  autocomplete="off"
+                  id="load-button"
+                  class="waves-effect light-blue waves-light btn-small"
+                  disabled
+                  onclick="load()"
+                >
+                  Load Model
+                </button>
+                <button
+                  autocomplete="off"
+                  id="save-button"
+                  class="waves-effect light-blue waves-light btn-small"
+                  disabled
+                  onclick="save()"
+                >
+                  Save Model
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!--   Prediction   -->
+          <div class="col s12 m6">
+            <div class="icon-block">
+              <h3 class="center light-blue-text">
+                <i class="material-icons" style="font-size: 2em">timeline</i>
+              </h3>
+              <h5 class="center">Predict</h5>
+
+              <label
+                >Square feet of living space:
+                <input type="number" id="prediction-input" placeholder="2000"
+              /></label>
+              <button
+                autocomplete="off"
+                id="predict-button"
+                class="waves-effect light-blue waves-light btn"
+                disabled
+                onclick="predict()"
+              >
+                Predict house price
+              </button>
+              <p><strong id="prediction-output"></strong></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </body>
 </html>
